@@ -4,7 +4,7 @@ This project hosts our regular exercices and projects of the WebGL course (Infog
 ## Structure of the repo
 This repository is composed of the HTML files of our exercices. To run them :
 * Clone this repository to get the HTML files
-* Go to the course [website](webgl3d.info) and download the base [exercice folder](webgl3d.info/ex/ex.zip)
+* Go to the course [website](http://webgl3d.info) and download the base [exercice folder](http://webgl3d.info/ex/ex.zip)
 * Unzip the exercice folder, ditch the HTML files, and copy the folders you need (Js, etc...)
 * Run the HTML files in your browser ! :)
 
