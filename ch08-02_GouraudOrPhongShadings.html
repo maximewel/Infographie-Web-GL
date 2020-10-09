@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="fr">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="stylesheet" href="css/stylesheet.css">
+		<script src="js/commonFunctions.js"></script>
+		<script src='js/gl-matrix-min.js'></script>
+		<script src='js/webglTools.js'></script>
+		<script id="shader-vs" type="x-shader/x-vertex">
+			attribute vec3 aVertexPosition;
+			attribute vec3 aVertexNormal;
+			uniform mat4 uMVMatrix;
+			uniform mat4 uPMatrix;
+			uniform mat4 uNMatrix;
+			uniform bool uPhongEnabled;
+			uniform float uShininess;
+			uniform vec3 uLightAmbient;
+			uniform vec3 uMaterialDiffuse;
+			uniform vec3 uMaterialSpecular;
+			uniform vec3 uLightPosition;
+			varying vec3 vNormal;
+			varying vec3 vLightRay;
+			varying vec3 vEyeVec;
+			varying highp vec3 vColor;
+			vec3 gouraudShading()
+			{
+				vec3 L = normalize(vLightRay);
+				vec3 N = normalize(vNormal);
+				float lambertTerm = dot(N,-L);
+				vec3 finalColor = uLightAmbient;
+				if(lambertTerm > 0.0)
+				{
+					finalColor += uMaterialDiffuse * lambertTerm;
+					vec3 E = normalize(vEyeVec);
+					vec3 R = reflect(L, N);
+					float specular = pow( max(dot(R, E), 0.0), uShininess);
+					finalColor += uMaterialSpecular * specular;
+				}
+				return finalColor;
+			}
+			void main(void) {
+				vec4 vertex = uMVMatrix * vec4(aVertexPosition, 1.0);
+				vNormal = vec3(uNMatrix * vec4(aVertexNormal, 1.0));
+				vec4 light = vec4(uLightPosition,1.0);
+				vLightRay = vertex.xyz - light.xyz;
+				vEyeVec = -vec3(vertex.xyz);
+				if(uPhongEnabled)
+				{
+					gl_Position = uPMatrix * vertex;
+				}
+				else
+				{
+					gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
+					vColor = gouraudShading();
+				}
+			}
+		</script>
+		<script id="shader-fs" type="x-shader/x-fragment">
+			#ifdef GL_ES
+			precision highp float;
+			#endif
+			uniform float uShininess;
+			uniform vec3 uLightAmbient;
+			uniform vec3 uMaterialDiffuse;
+			uniform vec3 uMaterialSpecular;
+			uniform bool uPhongEnabled;
+			varying vec3 vNormal;
+			varying vec3 vLightRay;
+			varying vec3 vEyeVec;
+			varying highp vec3 vColor;
+			vec3 phongShading()
+			{
+				vec3 L = normalize(vLightRay);
+				vec3 N = normalize(vNormal);
+				float lambertTerm = dot(N,-L);
+				vec3 finalColor = uLightAmbient;
+				if(lambertTerm > 0.0)
+				{
+					finalColor += uMaterialDiffuse * lambertTerm;
+					vec3 E = normalize(vEyeVec);
+					vec3 R = reflect(L, N);
+					float specular = pow( max(dot(R, E), 0.0), uShininess);
+					finalColor += uMaterialSpecular * specular;
+				}
+				return finalColor;
+			}
+			void main(void)
+			{
+				if(uPhongEnabled)
+				{
+					gl_FragColor = vec4(phongShading(), 1.0);
+				}
+				else
+				{
+					gl_FragColor = vec4(vColor, 1.0);
+				}
+			}
+		</script>
+		<script>
+			var rotY = 0;
+			var rotX = 0;
+			var phongEnabled = true;
+			var vertexBuffer = null;
+			var indexBuffer = null;
+			var normalsBuffer = null;
+			var indices = [];
+			var zoom = 0;
+			var mvMatrix = mat4.create();
+			var pMatrix  = mat4.create();
+			var nMatrix  = mat4.create();
+			window.onkeydown = checkKey;
+			var delta = 5;
+			function checkKey(ev){
+				switch(ev.keyCode){
+					case 71:
+						phongEnabled = false;
+						break;
+					case 80:
+						phongEnabled = true;
+						break;
+					case 89 :
+						zoom -= 0.2;
+						break;
+					case 88 :
+						zoom += 0.2;
+						break;
+					default:
+					  console.log(ev.keyCode);
+					break;
+				}
+			}
+			function initShaderParameters(prg){
+				prg.vertexPositionAttribute = glContext.getAttribLocation(prg, "aVertexPosition");
+			    glContext.enableVertexAttribArray(prg.vertexPositionAttribute);
+			    prg.vertexNormalAttribute = glContext.getAttribLocation(prg, "aVertexNormal");
+			    glContext.enableVertexAttribArray(prg.vertexNormalAttribute);
+			    prg.pMatrixUniform             = glContext.getUniformLocation(prg, 'uPMatrix');
+			    prg.mvMatrixUniform            = glContext.getUniformLocation(prg, 'uMVMatrix');
+			    prg.nMatrixUniform             = glContext.getUniformLocation(prg, 'uNMatrix');
+			    prg.lightPositionUniform       = glContext.getUniformLocation(prg, 'uLightPosition');
+				prg.phongEnabledUniform        = glContext.getUniformLocation(prg, 'uPhongEnabled');
+			    prg.shininessUniform           = glContext.getUniformLocation(prg, 'uShininess');
+			    prg.lightAmbientUniform        = glContext.getUniformLocation(prg, 'uLightAmbient');
+			    prg.materialDiffuseUniform     = glContext.getUniformLocation(prg, 'uMaterialDiffuse');
+			    prg.materialSpecularUniform    = glContext.getUniformLocation(prg, 'uMaterialSpecular');
+			}
+			function loadModel(filename){
+			    var request = new XMLHttpRequest();
+			    console.info('Requesting ' + filename);
+			    request.open("GET",filename);
+			    request.onreadystatechange = function() {
+			      if (request.readyState == 4) {
+			        if(request.status == 404) {
+			            console.info(filename + ' does not exist');
+			         }
+			        else {
+			            handleLoadedModel(filename,JSON.parse(request.responseText));
+			        }
+			      }
+			    }
+			    request.send();
+			}
+			function handleLoadedModel(filename,payload) {
+			    console.info(filename + ' has been retrieved from the server');
+				indices = payload.indices;
+				console.log("vertices: "+payload.vertices.length);
+				console.log("normals: "+payload.normals.length);
+				console.log("indices: "+indices.length);
+				vertexBuffer = getVertexBufferWithVertices(payload.vertices);
+				normalsBuffer = getVertexBufferWithVertices(payload.normals);
+				indexBuffer = getIndexBufferWithIndices(payload.indices);
+				initLights();
+				renderLoop();
+			}
+			function degToRad(degrees){
+				return( degrees * Math.PI / 180.0 );
+			}
+			function initLights(){
+			    glContext.uniform3f(prg.lightPositionUniform, 1, 1, 1);
+			    glContext.uniform3f(prg.lightAmbientUniform,0.7,0.3,0.1);
+				glContext.uniform3f(prg.materialSpecularUniform, 0.5,0.5,0.5);
+				glContext.uniform3f(prg.materialDiffuseUniform, 0.6,0.6,0.6);
+			    glContext.uniform1f(prg.shininessUniform, 24.0);
+				glContext.uniform1i(prg.phongEnabledUniform, phongEnabled);
+			}
+			function drawScene(){
+				glContext.clearColor(0.9, 0.9, 1.0, 1.0);
+				glContext.enable(glContext.DEPTH_TEST);
+				glContext.clear(glContext.COLOR_BUFFER_BIT | glContext.DEPTH_BUFFER_BIT);
+				glContext.uniform1i(prg.phongEnabledUniform, phongEnabled);
+				glContext.viewport(0, 0, c_width, c_height);
+			    mat4.perspective(pMatrix, degToRad(60), c_width / c_height, 0.1, 1000.0);
+				
+			    var tx = 0;
+				var ty = 0;
+				var tz = -40.0;
+				translationMat = mat4.create();
+				mat4.identity(translationMat);
+				mat4.translate(translationMat, translationMat, [tx, ty, tz+zoom]);
+				rotateModelViewMatrixUsingQuaternion(true);
+				var modelViewMatrix = mat4.multiply(mat4.create(), translationMat, mvMatrix);
+				glContext.uniformMatrix4fv(prg.pMatrixUniform, false, pMatrix);
+				glContext.uniformMatrix4fv(prg.mvMatrixUniform, false, modelViewMatrix);
+			    mat4.copy(nMatrix, mvMatrix);
+			    mat4.invert(nMatrix, nMatrix);
+			    mat4.transpose(nMatrix, nMatrix);
+			    glContext.uniformMatrix4fv(prg.nMatrixUniform, false, nMatrix);
+				glContext.bindBuffer(glContext.ARRAY_BUFFER, vertexBuffer);
+				glContext.vertexAttribPointer(prg.vertexPositionAttribute, 3, glContext.FLOAT, false, 0, 0);
+				glContext.bindBuffer(glContext.ARRAY_BUFFER, normalsBuffer);
+				glContext.vertexAttribPointer(prg.vertexNormalAttribute, 3, glContext.FLOAT, false, 0, 0);
+				glContext.bindBuffer(glContext.ELEMENT_ARRAY_BUFFER, indexBuffer);
+				glContext.drawElements(glContext.TRIANGLES , indices.length, glContext.UNSIGNED_SHORT,0);
+			}
+			function initWebGL(){
+				glContext = getGLContext('webgl-canvas');
+				initProgram();
+				loadModel("models/teapot2.json");
+			}
+		</script>
+	</head>
+	<body onload="initWebGL()">
+		<script>displayTitle("Ch.08 Ex.2 : Lissage de Gouraud et de Phong", 1,1,1,1,1,1,1);</script>
+		<p>
+			<ul>
+				<li>Touche 'p' : Simuler l'ombrage locale de Phong</li>
+				<li>Touche 'g' : Simuler l'ombrage locale de Gouraud</li>
+				<li>Touches 'y' et 'x' : Zoomer</li>
+			</ul>
+		</p>
+		<canvas id="webgl-canvas" width="500" height="500">
+			HTML5 is not supported
+		</canvas>
+		<script src='./js/mouseMotionHandling.js'></script>
+	</body>
+</html>

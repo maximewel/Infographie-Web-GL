@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="fr">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="stylesheet" href="./css/stylesheet.css">
+		<script src="js/commonFunctions.js"></script>
+		<script src="js/gl-matrix-min.js"></script>
+		<script src="js/webglTools.js"></script>
+		<script id="shader-vs" type="x-shader/x-vertex">
+			attribute vec3 aVertexPosition;
+			attribute vec4 aColor;
+			uniform mat4 uMVMatrix;
+			uniform mat4 uPMatrix;
+			varying vec4 vColor;
+			void main(void) {
+				vColor = aColor;
+				gl_PointSize = 15.0;
+				gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
+			}
+		</script>
+		<script id="shader-fs" type="x-shader/x-fragment">
+			#ifdef GL_ES
+				precision highp float;
+			#endif
+			varying vec4 vColor;
+			void main(void) {
+				gl_FragColor = vColor;
+			}
+		</script>
+		<script>
+			var vertexBuffer = null;
+			var vertexBuffer = null;
+			var indexBuffer = null;
+			var colorBuffer = null;
+			var indices = [];
+			var vertices = [];
+			var colors = [];
+			var pointsColors = [];
+			var intermedPointsColors = [];
+			var verticesIntermed = [];
+			var indicesIntermed = [];
+			var indexBufferIntermed = null;
+			var vertexBufferIntermed = null;
+			var linesMode = false;
+			var mvMatrix = mat4.create();
+			var pMatrix = mat4.create();
+			function initShaderParameters(prg)
+			{
+				prg.vertexPositionAttribute = glContext.getAttribLocation(prg, "aVertexPosition");
+				glContext.enableVertexAttribArray(prg.vertexPositionAttribute);
+				prg.colorAttribute 			= glContext.getAttribLocation(prg, "aColor");
+				glContext.enableVertexAttribArray(prg.colorAttribute);
+				prg.pMatrixUniform          = glContext.getUniformLocation(prg, 'uPMatrix');
+				prg.mvMatrixUniform         = glContext.getUniformLocation(prg, 'uMVMatrix');
+			}
+			function initBuffers()
+			{
+				vertexBuffer = getVertexBufferWithVertices(vertices);
+				colorBuffer  = getVertexBufferWithVertices(colors);
+				indexBuffer  = getIndexBufferWithIndices(indices);
+				vertexBufferIntermed = getVertexBufferWithVertices(verticesIntermed);
+				indexBufferIntermed  = getIndexBufferWithIndices(indicesIntermed);
+			}
+			function drawScene()
+			{
+				glContext.clearColor(0.9, 0.9, 0.9, 1.0);
+				glContext.clear(glContext.COLOR_BUFFER_BIT | glContext.DEPTH_BUFFER_BIT);
+				glContext.viewport(0, 0, c_width, c_height);
+				mat4.identity(pMatrix);
+				mat4.identity(mvMatrix);
+				glContext.uniformMatrix4fv(prg.pMatrixUniform, false, pMatrix);
+				glContext.uniformMatrix4fv(prg.mvMatrixUniform, false, mvMatrix);
+				glContext.bindBuffer(glContext.ARRAY_BUFFER, vertexBuffer);
+				glContext.vertexAttribPointer(prg.vertexPositionAttribute, 3, glContext.FLOAT, false, 0, 0);
+				glContext.bindBuffer(glContext.ARRAY_BUFFER, colorBuffer);
+				glContext.vertexAttribPointer(prg.colorAttribute, 4, glContext.FLOAT, false, 0, 0);
+				glContext.bindBuffer(glContext.ELEMENT_ARRAY_BUFFER, indexBuffer);
+				glContext.drawElements(glContext.TRIANGLE_STRIP, indices.length, glContext.UNSIGNED_SHORT,0);
+				glContext.bindBuffer(glContext.ARRAY_BUFFER, getVertexBufferWithVertices(pointsColors));
+				glContext.vertexAttribPointer(prg.colorAttribute, 4, glContext.FLOAT, false, 0, 0);
+				glContext.drawElements(glContext.POINTS, indices.length, glContext.UNSIGNED_SHORT, 0);
+				glContext.bindBuffer(glContext.ARRAY_BUFFER, vertexBufferIntermed);
+				glContext.vertexAttribPointer(prg.vertexPositionAttribute, 3, glContext.FLOAT, false, 0, 0);
+				glContext.bindBuffer(glContext.ELEMENT_ARRAY_BUFFER, indexBufferIntermed);
+				glContext.bindBuffer(glContext.ARRAY_BUFFER, getVertexBufferWithVertices(intermedPointsColors));
+				glContext.vertexAttribPointer(prg.colorAttribute, 4, glContext.FLOAT, false, 0, 0);
+				if(linesMode) {
+					glContext.drawElements(glContext.TRIANGLE_STRIP, indicesIntermed.length, glContext.UNSIGNED_SHORT, 0);
+				}
+				else {
+					glContext.drawElements(glContext.POINTS, indicesIntermed.length, glContext.UNSIGNED_SHORT, 0);
+				}
+			}
+			function initWebGL(){
+				resizeCanvas();
+				glContext = getGLContext('webgl-canvas');
+				initProgram();
+				initBuffers();
+				renderLoop();
+			}
+			function showLines(){
+				linesMode = !linesMode;
+			}
+		</script>
+	</head>
+	<body onload="initWebGL()">
+		<script>displayTitle("Ch.05 Ex.3 [EXTRA-02] : Effet du 'Blending' => transparence", 1,1,1,1,1,1,1);</script>
+		<p>Extra proposé par Steve Visinand.</p>
+		<p>
+		<p>Le canevas est adapté à la taille de la fenêtre => Après avoir effectuer un dessin si l'utilisateur change la fenêtre de la fenêtre on peut continuer à dessiner sans problème de consistance!</p>
+		<div id="control">
+			<button onclick="showLines()">Toggle mode</button>
+		</div>
+		<canvas id="webgl-canvas" width="500" height="500">
+			HTML5 is not supported
+		</canvas>
+		<script>
+			function addPointOnGLScene(pX, pY)
+			{
+				var lastIndex = vertices.length - 1;
+				if(lastIndex - 5 >= 0) {
+					var px1 = vertices[lastIndex - 5]; 
+					var py1 = vertices[lastIndex - 4];
+					var pXIntermed = (px1 + pX) / 2.0;
+					var pYIntermed = (py1 + pY) / 2.0;
+					intermedPointsColors.push(0.0, 1.0, 0.0, 0.5);
+					verticesIntermed.push(pXIntermed, pYIntermed, 0.0);
+					indicesIntermed.push(indicesIntermed.length);
+				}
+				vertices.push(pX, pY, -0.2);
+				indices.push(indices.length);
+				var maxPoints = 10;
+				var colorComponent = 1.0 * (indices.length % maxPoints) / (maxPoints - 1);
+				colors.push(colorComponent, colorComponent, colorComponent, 1);
+				pointsColors.push(1.0, 0.0, 0.0, 1.0);
+				console.log('v: ' + vertices + ' i: ' + indices + ' c: ' + colors);
+				initBuffers();
+			}
+			var myCanvas = document.getElementById('webgl-canvas');
+			myCanvas.addEventListener('click', function(evt)
+			{
+				var mousePos = getMousePos(myCanvas, evt);
+				var pX = (mousePos.x - myCanvas.width/2.0) / myCanvas.width * 2.0;
+				var pY = (myCanvas.height/2.0 - mousePos.y) / myCanvas.height * 2.0;
+				console.log('point: ' + pX + ',' + pY);
+				addPointOnGLScene(pX, pY);
+			}, false);
+			function getMousePos(myCanvas, evt)
+			{
+				var rect = myCanvas.getBoundingClientRect();
+				return {
+				  x: evt.clientX - rect.left,
+				  y: evt.clientY - rect.top
+				};
+			}
+			window.onresize = function(event) {
+				resizeCanvas();
+				glContext = getGLContext('webgl-canvas');
+			}
+			function resizeCanvas(){
+				var width = window.innerWidth;
+				myCanvas.width = width - 20;
+				myCanvas.height = myCanvas.width;
+			}
+		</script>
+	</body>
+</html>

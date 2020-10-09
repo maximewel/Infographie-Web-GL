@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="fr">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="stylesheet" href="css/stylesheet.css">
+		<script src="js/commonFunctions.js"></script>
+		<script src='js/gl-matrix-min.js'></script>
+		<script src='js/webglTools.js'></script>
+		<script id="shader-vs" type="x-shader/x-vertex">
+		attribute vec3 aVertexPosition;
+		attribute vec3 aVertexNormal;
+		uniform mat4 uMVMatrix;
+		uniform mat4 uPMatrix;
+		uniform mat4 uNMatrix;
+		uniform vec3 uLightPosition;
+		varying vec3 vNormal;
+		varying vec3 vLightRay;
+		varying vec3 vEyeVec;
+		void main(void) {
+			vec4 vertex = uMVMatrix * vec4(aVertexPosition, 1.0);
+		    vNormal = vec3(uNMatrix * vec4(aVertexNormal, 1.0));
+		 	vec4 light = vec4(uLightPosition,1.0);
+			vLightRay = vertex.xyz - light.xyz;
+			vEyeVec = -vec3(vertex.xyz);
+		    gl_Position = uPMatrix * vertex;
+		}
+		</script>
+		<script id="shader-fs" type="x-shader/x-fragment">
+		#ifdef GL_ES
+		precision highp float;
+		#endif
+		uniform float uShininess;
+		uniform vec3 uLightAmbient;
+		uniform vec3 uMaterialDiffuse;
+		uniform vec3 uMaterialSpecular;
+		varying vec3 vNormal;
+		varying vec3 vLightRay;
+		varying vec3 vEyeVec;
+		void main(void)
+		{
+			vec3 L = normalize(vLightRay);
+			vec3 N = normalize(vNormal);
+			float lambertTerm = dot(N,-L);
+			vec3 finalColor = uLightAmbient;
+			if(lambertTerm > 0.0)
+			{
+				finalColor += uMaterialDiffuse * lambertTerm;
+				vec3 E = normalize(vEyeVec);
+				vec3 R = reflect(L, N);
+				float specular = pow( max(dot(R, E), 0.0), uShininess);
+				finalColor += uMaterialSpecular * specular;
+			}
+			gl_FragColor = vec4(finalColor, 1.0);
+		}
+		</script>
+		<script>
+			var subdivisions = 0;
+			var vertexBuffer = null;
+			var indexBuffer = null;
+			var normalsBuffer = null;
+			var indices = [];
+			var vertices = [];
+			var normals = [];
+			var indicesLength = [];
+			var tempMatrix = mat4.create();
+			var mvMatrix = mat4.create();
+			var pMatrix  = mat4.create();
+			var nMatrix  = mat4.create();
+			window.onkeydown = checkKey;
+			var delta = 5;
+			function checkKey(ev){
+				switch(ev.keyCode){
+					case 65:{
+						rotateCamera(-2.0, [0,1,0]);
+						break;
+					}
+					case 68:{
+						rotateCamera(2.0, [0,1,0]);
+						break;
+					}
+					case 87:{
+						rotateCamera(-2.0, [1,0,0]);
+						break;
+					}
+					case 83:{
+						rotateCamera(2.0, [1,0,0]);
+						break;
+					}
+					case 107:
+					case 49:
+						subdivisions += 1;
+						loadModel(path);
+						break;
+					case 173:
+					case 109:
+					case 189:
+						subdivisions -= 1;
+						if(subdivisions < 0)
+							subdivisions = 0;
+						else
+							loadModel(path);
+						break;
+					default:
+					  console.log(ev.keyCode);
+					break;
+				}
+			}
+			function rotateCamera(angle, vector)
+			{
+				mat4.identity(tempMatrix);
+				mat4.rotate(tempMatrix, tempMatrix, degToRad(angle), vector);
+				mat4.multiply(mvMatrix, tempMatrix, mvMatrix);
+			}
+			function initShaderParameters(prg){
+				prg.vertexPositionAttribute = glContext.getAttribLocation(prg, "aVertexPosition");
+			    glContext.enableVertexAttribArray(prg.vertexPositionAttribute);
+			    prg.vertexNormalAttribute = glContext.getAttribLocation(prg, "aVertexNormal");
+			    glContext.enableVertexAttribArray(prg.vertexNormalAttribute);
+			    prg.pMatrixUniform             = glContext.getUniformLocation(prg, 'uPMatrix');
+			    prg.mvMatrixUniform            = glContext.getUniformLocation(prg, 'uMVMatrix');
+			    prg.nMatrixUniform             = glContext.getUniformLocation(prg, 'uNMatrix');
+			    prg.lightPositionUniform       = glContext.getUniformLocation(prg, 'uLightPosition');
+			    prg.shininessUniform           = glContext.getUniformLocation(prg, 'uShininess');
+			    prg.lightAmbientUniform        = glContext.getUniformLocation(prg, 'uLightAmbient');
+			    prg.materialDiffuseUniform     = glContext.getUniformLocation(prg, 'uMaterialDiffuse');
+			    prg.materialSpecularUniform    = glContext.getUniformLocation(prg, 'uMaterialSpecular');
+			}
+			function loadModel(filename){
+			    var request = new XMLHttpRequest();
+			    console.info('Requesting ' + filename);
+			    request.open("GET",filename);
+			    request.onreadystatechange = function() {
+			      if (request.readyState == 4) {
+			        if(request.status == 404) {
+			            console.info(filename + ' does not exist');
+			         }
+			        else {
+			            handleLoadedModel(filename,JSON.parse(request.responseText));
+			        }
+			      }
+			    }
+			    request.send();
+			}
+			function handleLoadedModel(filename,payload) {
+				console.info(filename + ' has been retrieved from the server');
+				indices = payload.indices;
+				vertices = payload.vertices;
+				normals = payload.normals;
+				var subd = (subdivisions == 0) ? -1 : 0;
+				for(; subd < subdivisions; subd++)
+				{
+					var oldIndices = indices;
+					indices = [];
+					var oldVertices = vertices;
+					vertices = [];
+					var oldNormals = normals;
+					normals = [];
+					for(var i = 0; i < oldIndices.length; i += 3)
+					{
+						var i1 = oldIndices[i] * 3;
+						var i2 = oldIndices[i+1] * 3;
+						var i3 = oldIndices[i+2] * 3;
+						var v1 = oldVertices.slice(i1, i1+3);
+						var v2 = oldVertices.slice(i2, i2+3);
+						var v3 = oldVertices.slice(i3, i3+3);
+						var n1 = oldNormals.slice(i1, i1+3);
+						var n2 = oldNormals.slice(i2, i2+3);
+						var n3 = oldNormals.slice(i3, i3+3);
+						var initIndex = vertices.length /3;
+						vertices.push(
+							v1[0], v1[1], v1[2],
+							v2[0], v2[1], v2[2],
+							v3[0], v3[1], v3[2]);
+						if(subdivisions > 0)
+							vertices.push(
+								(v1[0] + v2[0]) / 2.0,
+								(v1[1] + v2[1]) / 2.0,
+								(v1[2] + v2[2]) / 2.0,
+								(v2[0] + v3[0]) / 2.0,
+								(v2[1] + v3[1]) / 2.0,
+								(v2[2] + v3[2]) / 2.0,
+								(v3[0] + v1[0]) / 2.0,
+								(v3[1] + v1[1]) / 2.0,
+								(v3[2] + v1[2]) / 2.0
+							);
+						normals.push(
+							n1[0], n1[1], n1[2],
+							n2[0], n2[1], n2[2],
+							n3[0], n3[1], n3[2]);
+						if(subdivisions > 0)
+							normals.push(
+								(n1[0] + n2[0]) / 2.0,
+								(n1[1] + n2[1]) / 2.0,
+								(n1[2] + n2[2]) / 2.0,
+								(n2[0] + n3[0]) / 2.0,
+								(n2[1] + n3[1]) / 2.0,
+								(n2[2] + n3[2]) / 2.0,
+								(n3[0] + n1[0]) / 2.0,
+								(n3[1] + n1[1]) / 2.0,
+								(n3[2] + n1[2]) / 2.0
+							);
+						if(subdivisions > 0)
+							indices.push(
+								initIndex + 3,
+								initIndex + 4,
+								initIndex + 5,
+								initIndex,
+								initIndex + 3,
+								initIndex + 5,
+								initIndex + 1,
+								initIndex + 3,
+								initIndex + 4,
+								initIndex + 2,
+								initIndex + 4,
+								initIndex + 5
+							);
+						else
+							indices.push(
+								initIndex,
+								initIndex + 1,
+								initIndex + 2
+							);
+					}
+				}
+				vertexBuffer = [];
+				indexBuffer = [];
+				normalsBuffer = [];
+				indicesLength = [];
+				var indStart = 0, vertStart = 0, trianglesAtATime = 10000, i = 0;
+				var vStep = subdivisions == 0 ? 9 : 18;
+				var iStep = subdivisions == 0 ? 3 : 12;
+				while(indStart < indices.length && vertStart < vertices.length)
+				{
+					var ind = indices.slice(indStart, indStart + trianglesAtATime * iStep).map(function(index) { return index - i*trianglesAtATime * ((subdivisions == 0) ? 3 : 6) ; });
+					indicesLength[i] = ind.length;
+					indexBuffer[i] = getIndexBufferWithIndices(ind);
+					vertexBuffer[i] = getVertexBufferWithVertices(vertices.slice(vertStart, vertStart + trianglesAtATime * vStep));
+					normalsBuffer[i] = getVertexBufferWithVertices(normals.slice(vertStart, vertStart + trianglesAtATime * vStep));
+					indStart += iStep * trianglesAtATime;
+					vertStart += vStep * trianglesAtATime;
+					i++;
+				}
+				console.log("vertices: "+ vertices.length);
+				console.log("normals: "+ normals.length);
+				console.log("indices: "+ indices.length);
+				document.getElementById("nbVertices").innerHTML = vertices.length;
+				document.getElementById("nbIndices").innerHTML = indices.length;
+				document.getElementById("nbSubdivisions").innerHTML = subdivisions;
+				initLights();
+				renderLoop();
+			}
+			mat4.identity(mvMatrix);
+			function degToRad(degrees){
+				return( degrees * Math.PI / 180.0 );
+			}
+			function initLights(){
+			    glContext.uniform3f(prg.lightPositionUniform, 1, 1, 1);
+			    glContext.uniform3f(prg.lightAmbientUniform,0.1,0.1,0.1);
+				glContext.uniform3f(prg.materialSpecularUniform, 0.5,0.5,0.5);
+				glContext.uniform3f(prg.materialDiffuseUniform, 0.6,0.6,0.6);
+			    glContext.uniform1f(prg.shininessUniform, 24.0);
+			}
+			function drawScene(){
+				glContext.clearColor(0.9, 0.9, 1.0, 1.0);
+				glContext.enable(glContext.DEPTH_TEST);
+				glContext.clear(glContext.COLOR_BUFFER_BIT | glContext.DEPTH_BUFFER_BIT);
+				glContext.viewport(0, 0, c_width, c_height);
+			    mat4.perspective(pMatrix, degToRad(60), c_width / c_height, 0.1, 1000.0);
+			    var tx = 0;
+			    var ty = -0.5;
+				var tz = -1.8;
+				rotateModelViewMatrixUsingQuaternion(true);
+			    glContext.uniformMatrix4fv(prg.pMatrixUniform, false, pMatrix);
+			    glContext.uniformMatrix4fv(prg.mvMatrixUniform, false, mvMatrix);
+			    mat4.copy(nMatrix, mvMatrix);
+			    mat4.invert(nMatrix, nMatrix);
+			    mat4.transpose(nMatrix, nMatrix);
+				
+			    glContext.uniformMatrix4fv(prg.nMatrixUniform, false, nMatrix);
+				for(var i = 0; i < indicesLength.length; i++)
+				{
+					glContext.bindBuffer(glContext.ARRAY_BUFFER, vertexBuffer[i]);
+					glContext.vertexAttribPointer(prg.vertexPositionAttribute, 3, glContext.FLOAT, false, 0, 0);
+					glContext.bindBuffer(glContext.ARRAY_BUFFER, normalsBuffer[i]);
+					glContext.vertexAttribPointer(prg.vertexNormalAttribute, 3, glContext.FLOAT, false, 0, 0);
+					glContext.bindBuffer(glContext.ELEMENT_ARRAY_BUFFER, indexBuffer[i]);
+					glContext.drawElements(glContext.TRIANGLES, indicesLength[i], glContext.UNSIGNED_SHORT,0);
+				}
+			}
+			function initWebGL(){
+				glContext = getGLContext('webgl-canvas');
+				initProgram();
+				changeModel();
+			}
+			var path = "";
+			function changeModel() {
+				subdivisions = 0;
+				path = 'models/' + document.getElementById('models').value + '.json';
+				loadModel(path);
+			}
+		</script>
+	</head>
+	<body onload="initWebGL()">
+		<script>displayTitle("Ch.09 E.g.4b : Subdivision des triangles de plusieurs modèles en format JSON", 1,1,1,1,1,1,1);</script>
+		<p>
+		Appuyez sur la touche <strong>+</strong> pour augmenter ou sur <strong>-</strong> pour r&eacute;duire le nombre de subdivisions
+		</p>
+		<p>Les touches WASD permettent de changer l'angle de vue</p>
+		<select id="models">
+			<option value="a380">Airbus A380</option>
+			<option value="dino">Dinosaure</option>
+			<option value="f1">Formule 1</option>
+			<option value="fa18">F/A-18 Hornet</option>
+			<option value="homer">Homer Simpson</option>
+			<option value="hydrant">Hydrante</option>
+			<option value="iss">Station spatiale internationale</option>
+			<option value="minigun">Minigun</option>
+			<option value="piano">Piano à queue</option>
+			<option value="playstation">Playstation 1</option>
+			<option value="quad">Quad</option>
+			<option value="rhino">Rhinocéros</option>
+			<option value="scrat">Scrat (L'Âge de glace)</option>
+			<option value="shark">Requin</option>
+			<option value="sls">Mercedes-Benz SLS AMG</option>
+			<option value="spongebob">Bob l'éponge</option>
+			<option value="squeeze">Squeeze (Toy Story)</option>
+			<option value="sts">Navette spatiale américaine</option>
+			<option value="tank">Tank</option>
+			<option value="tron">Moto (Tron)</option>
+			<option value="typewriter">Machine à écrire</option>
+			<option value="ufo">OVNI</option>
+			<option value="wc" selected="selected">WC</option>
+			<option value="yoda">Maître Yoda</option>
+		</select>
+		<button onClick="changeModel();">Charger modèle</button>
+		<ul>
+			<li>Niveau de subdivision : <span id="nbSubdivisions"></span></li>
+			<li>Nombre de vertex : <span id="nbVertices"></span></li>
+			<li>Nombre d'indices : <span id="nbIndices"></span></li>
+		</ul>
+		<canvas id="webgl-canvas" width="500" height="500">
+			HTML5 is not supported
+		</canvas>
+		<script src='./js/mouseMotionHandling.js'></script>
+	</body>
+</html>

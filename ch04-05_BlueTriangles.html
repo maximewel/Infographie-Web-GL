@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="fr">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="stylesheet" href="css/stylesheet.css">
+		<script src="js/commonFunctions.js"></script>
+		<script src="js/gl-matrix-min.js"></script>
+		<script src="js/webglTools.js"></script>
+<script id="shader-vs" type="x-shader/x-vertex">attribute vec3 aVertexPosition;attribute vec4 aColor;uniform mat4 uMVMatrix;uniform mat4 uPMatrix;varying vec4 vColor;void main(void) {vColor = aColor;gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);}</script><script id="shader-fs" type="x-shader/x-fragment">
+#ifdef GL_ES
+precision highp float;
+#endif
+varying vec4 vColor;void main(void) {gl_FragColor = vColor;}</script>
+		<script src="js/ch04-05_BlueTriangles.js"></script>
+	</head>
+	<body onload="initWebGL()">
+		<script>displayTitle("Ch.04 Ex.5 : Un ensemble de triangles bleus", 1,1,1,1,1,1,1);</script>
+		<br>Voici le même triangle tout en bleu avec un peu de transparence<br>
+		<span id="textureButton"><button onclick="changeProjectionMode()">Avec ou sans perspective</button></span>
+		<br />
+		<canvas id="webgl-canvas" width="500" height="500">
+			HTML5 is not supported
+		</canvas>
+	</body>
+</html>

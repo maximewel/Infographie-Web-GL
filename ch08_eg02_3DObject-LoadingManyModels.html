@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="fr">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="stylesheet" href="./css/stylesheet.css">
+		<script src="./js/commonFunctions.js"></script>
+		<script src='./js/gl-matrix-min.js'></script>
+		<script src='./js/webglTools.js'></script>
+		<script id="shader-vs" type="x-shader/x-vertex">
+			attribute vec3 aVertexPosition;
+			attribute vec3 aVertexNormal;
+			uniform mat4 uMVMatrix;
+			uniform mat4 uPMatrix;
+			uniform mat4 uNMatrix;
+			uniform vec3 uLightPosition;
+			varying vec3 vNormal;
+			varying vec3 vLightRay;
+			varying vec3 vEyeVec;
+			void main(void) {
+				vec4 vertex = uMVMatrix * vec4(aVertexPosition, 1.0);
+			    vNormal = vec3(uNMatrix * vec4(aVertexNormal, 1.0));
+			    vec4 light = vec4(uLightPosition,1.0);
+			    vLightRay = vertex.xyz - light.xyz;
+			    vEyeVec = -vec3(vertex.xyz);
+			    gl_Position = uPMatrix * vertex;
+			}
+		</script>
+		<script id="shader-fs" type="x-shader/x-fragment">
+			#ifdef GL_ES
+			precision highp float;
+			#endif
+			uniform float uShininess;
+			uniform vec3 uLightAmbient;
+			uniform vec3 uMaterialDiffuse;
+			uniform vec3 uMaterialSpecular;
+			varying vec3 vNormal;
+			varying vec3 vLightRay;
+			varying vec3 vEyeVec;
+			void main(void)
+			{
+				vec3 L = normalize(vLightRay);
+				vec3 N = normalize(vNormal);
+				float lambertTerm = dot(N,-L);
+				vec3 finalColor = uLightAmbient;
+				if(lambertTerm > 0.0)
+				{
+					finalColor += uMaterialDiffuse * lambertTerm;
+					vec3 E = normalize(vEyeVec);
+					vec3 R = reflect(L, N);
+					float specular = pow( max(dot(R, E), 0.0), uShininess);
+					finalColor += uMaterialSpecular * specular;
+				}
+				gl_FragColor = vec4(finalColor, 1.0);
+			}
+		</script>
+		<script>
+			var rotY = 0;
+			var rotX = 0;
+			var vertexBuffer = null;
+			var indexBuffer = null;
+			var normalsBuffer = null;
+			
+			
+			var vertexBuffers = [];
+			var indexBuffers = [];
+			var normalsBuffers = [];
+			
+			var tabMultipleIndices = new Array();
+			var tabMultipleVertices = new Array();
+			var tabMultipleNormals = new Array();
+			var tabMultipleFalseNormals = new Array();
+			var tabOriginalIndices;
+			var tabOriginalVertices;
+			var tabOriginalNormals;
+			var model3DSubdivisions = 0;
+			var mvMatrix = mat4.create();
+			var pMatrix  = mat4.create();
+			var nMatrix  = mat4.create();
+			window.onkeydown = checkKey;
+			var delta = 5;
+			function checkKey(ev){
+				switch(ev.keyCode){
+					case 189:
+					case 173:
+					case 109:
+						if (model3DSubdivisions > 0)
+						{
+							model3DSubdivisions--;
+							subdivideModel();
+							modelPrintInfos();
+						}
+						break;
+					case 49:
+					case 107:
+						if (model3DSubdivisions < 5)
+						{
+							model3DSubdivisions++;
+							subdivideModel();
+							modelPrintInfos();
+						}
+						break;
+					
+					default:
+					break;
+				}
+			}
+			function subdivideModel()
+			{
+				tabMultipleIndices = new Array();
+				tabMultipleVertices = new Array();
+				tabMultipleNormals = new Array();
+				tabMultipleIndices[0] = tabOriginalIndices;
+				tabMultipleVertices[0] = tabOriginalVertices;
+				tabMultipleNormals[0] = tabOriginalNormals
+				for (var iteration=0; iteration < model3DSubdivisions; iteration++)
+				{
+					var oldIndices = tabMultipleIndices;
+					var oldVertices = tabMultipleVertices;
+					var oldNormals = tabMultipleNormals;
+					tabMultipleIndices = new Array();
+					tabMultipleVertices = new Array();
+					tabMultipleNormals = new Array();
+					var countTab = -1;
+					var currentIndice = 65535;
+					var currentVertice = 0;
+					var v1 = new Array(3);
+					var v2 = new Array(3);
+					var v3 = new Array(3);
+					var v1p = new Array(3);
+					var v2p = new Array(3);
+					var v3p = new Array(3);
+					var n1 = new Array(3);
+					var n2 = new Array(3);
+					var n3 = new Array(3);
+					var n1p = new Array(3);
+					var n2p = new Array(3);
+					var n3p = new Array(3);
+					for (var major = 0; major < oldIndices.length; major++)
+					{
+						for (var minor = 0; minor < oldIndices[major].length; minor+=3)
+						{
+							if (currentIndice > 65524)
+							{
+								countTab++;
+								console.log("creating new tabs " + countTab);
+								tabMultipleIndices[countTab] = new Array();
+								tabMultipleVertices[countTab] = new Array();
+								tabMultipleNormals[countTab] = new Array();
+								currentIndice = 0;
+								currentVertice = 0;
+							}
+							v1[0] = oldVertices[major][oldIndices[major][minor]*3];
+							v1[1] = oldVertices[major][oldIndices[major][minor]*3+1];
+							v1[2] = oldVertices[major][oldIndices[major][minor]*3+2];
+							v2[0] = oldVertices[major][oldIndices[major][minor+1]*3];
+							v2[1] = oldVertices[major][oldIndices[major][minor+1]*3+1];
+							v2[2] = oldVertices[major][oldIndices[major][minor+1]*3+2];
+							v3[0] = oldVertices[major][oldIndices[major][minor+2]*3];
+							v3[1] = oldVertices[major][oldIndices[major][minor+2]*3+1];
+							v3[2] = oldVertices[major][oldIndices[major][minor+2]*3+2];
+							n1[0] = oldNormals[major][oldIndices[major][minor]*3];
+							n1[1] = oldNormals[major][oldIndices[major][minor]*3+1];
+							n1[2] = oldNormals[major][oldIndices[major][minor]*3+2];
+							n2[0] = oldNormals[major][oldIndices[major][minor+1]*3];
+							n2[1] = oldNormals[major][oldIndices[major][minor+1]*3+1];
+							n2[2] = oldNormals[major][oldIndices[major][minor+1]*3+2];
+							n3[0] = oldNormals[major][oldIndices[major][minor+2]*3];
+							n3[1] = oldNormals[major][oldIndices[major][minor+2]*3+1];
+							n3[2] = oldNormals[major][oldIndices[major][minor+2]*3+2];
+							modelNewNormal(n1p, n2, n3);
+							modelNewNormal(n2p, n1, n3);
+							modelNewNormal(n3p, n1, n2);
+							modelNewVertex(v1p, v2, v3);
+							modelNewVertex(v2p, v1, v3);
+							modelNewVertex(v3p, v1, v2);
+							tabMultipleVertices[countTab][currentVertice*3] = v1[0];
+							tabMultipleVertices[countTab][currentVertice*3+1] = v1[1];
+							tabMultipleVertices[countTab][currentVertice*3+2] = v1[2];
+							tabMultipleVertices[countTab][currentVertice*3+3] = v2[0];
+							tabMultipleVertices[countTab][currentVertice*3+4] = v2[1];
+							tabMultipleVertices[countTab][currentVertice*3+5] = v2[2];
+							tabMultipleVertices[countTab][currentVertice*3+6] = v3[0];
+							tabMultipleVertices[countTab][currentVertice*3+7] = v3[1];
+							tabMultipleVertices[countTab][currentVertice*3+8] = v3[2];
+							tabMultipleNormals[countTab][currentVertice*3] = n1[0];
+							tabMultipleNormals[countTab][currentVertice*3+1] = n1[1];
+							tabMultipleNormals[countTab][currentVertice*3+2] = n1[2];
+							tabMultipleNormals[countTab][currentVertice*3+3] = n2[0];
+							tabMultipleNormals[countTab][currentVertice*3+4] = n2[1];
+							tabMultipleNormals[countTab][currentVertice*3+5] = n2[2];
+							tabMultipleNormals[countTab][currentVertice*3+6] = n3[0];
+							tabMultipleNormals[countTab][currentVertice*3+7] = n3[1];
+							tabMultipleNormals[countTab][currentVertice*3+8] = n3[2];
+							tabMultipleVertices[countTab][currentVertice*3+9] = v1p[0];
+							tabMultipleVertices[countTab][currentVertice*3+10] = v1p[1];
+							tabMultipleVertices[countTab][currentVertice*3+11] = v1p[2];
+							tabMultipleVertices[countTab][currentVertice*3+12] = v2p[0];
+							tabMultipleVertices[countTab][currentVertice*3+13] = v2p[1];
+							tabMultipleVertices[countTab][currentVertice*3+14] = v2p[2];
+							tabMultipleVertices[countTab][currentVertice*3+15] = v3p[0];
+							tabMultipleVertices[countTab][currentVertice*3+16] = v3p[1];
+							tabMultipleVertices[countTab][currentVertice*3+17] = v3p[2];
+							tabMultipleNormals[countTab][currentVertice*3+9] = n1p[0];
+							tabMultipleNormals[countTab][currentVertice*3+10] = n1p[1];
+							tabMultipleNormals[countTab][currentVertice*3+11] = n1p[2];
+							tabMultipleNormals[countTab][currentVertice*3+12] = n2p[0];
+							tabMultipleNormals[countTab][currentVertice*3+13] = n2p[1];
+							tabMultipleNormals[countTab][currentVertice*3+14] = n2p[2];
+							tabMultipleNormals[countTab][currentVertice*3+15] = n3p[0];
+							tabMultipleNormals[countTab][currentVertice*3+16] = n3p[1];
+							tabMultipleNormals[countTab][currentVertice*3+17] = n3p[2];
+							tabMultipleIndices[countTab][currentIndice] = currentVertice;
+							tabMultipleIndices[countTab][currentIndice+1] = currentVertice + 4;
+							tabMultipleIndices[countTab][currentIndice+2] = currentVertice + 5;
+							tabMultipleIndices[countTab][currentIndice+3] = currentVertice + 1;
+							tabMultipleIndices[countTab][currentIndice+4] = currentVertice + 3;
+							tabMultipleIndices[countTab][currentIndice+5] = currentVertice + 5;
+							tabMultipleIndices[countTab][currentIndice+6] = currentVertice + 2;
+							tabMultipleIndices[countTab][currentIndice+7] = currentVertice + 3;
+							tabMultipleIndices[countTab][currentIndice+8] = currentVertice + 4;
+							tabMultipleIndices[countTab][currentIndice+9] = currentVertice + 3;
+							tabMultipleIndices[countTab][currentIndice+10] = currentVertice + 4;
+							tabMultipleIndices[countTab][currentIndice+11] = currentVertice + 5;
+							currentIndice += 12;
+							currentVertice += 6;
+						}
+					}
+				}
+				modelBreakPhong();
+				updateBuffers();
+			}
+			function modelNewNormal(n, nx, ny)
+			{
+				n[0] = (nx[0] + ny[0]) / 2.0;
+				n[1] = (nx[1] + ny[1]) / 2.0;
+				n[2] = (nx[2] + ny[2]) / 2.0;
+			}
+			function modelNewVertex(v, vx, vy)
+			{
+				v[0] = (vx[0] + vy[0]) / 2.0;
+				v[1] = (vx[1] + vy[1]) / 2.0;
+				v[2] = (vx[2] + vy[2]) / 2.0;
+			}
+			function modelPrintInfos()
+			{
+				var nbfaces = 0;
+				var nbvertices = 0;
+				for (var i=0; i<tabMultipleIndices.length; i++)
+				{
+					nbfaces += tabMultipleIndices[i].length / 3.0;
+					nbvertices += tabMultipleVertices[i].length / 3.0;
+				}
+				document.getElementById("nbfaces").innerHTML = nbfaces;
+				document.getElementById("nbvertices").innerHTML = nbvertices;
+				document.getElementById("nbsubdivisions").innerHTML = model3DSubdivisions;
+			}
+			function modelBreakPhong()
+			{
+				tabMultipleFalseNormals = new Array();
+				for (var major=0; major<tabMultipleIndices.length; major++)
+				{
+					tabMultipleFalseNormals[major] = new Array();
+					for (var minor=0; minor<tabMultipleIndices[major].length; minor+=3)
+					{
+						tabMultipleFalseNormals[major][tabMultipleIndices[major][minor]*3] = tabMultipleNormals[major][tabMultipleIndices[major][minor]*3];
+						tabMultipleFalseNormals[major][tabMultipleIndices[major][minor]*3+1] = tabMultipleNormals[major][tabMultipleIndices[major][minor]*3+1];
+						tabMultipleFalseNormals[major][tabMultipleIndices[major][minor]*3+2] = tabMultipleNormals[major][tabMultipleIndices[major][minor]*3+2];
+						tabMultipleFalseNormals[major][tabMultipleIndices[major][minor+1]*3] = tabMultipleNormals[major][tabMultipleIndices[major][minor]*3];
+						tabMultipleFalseNormals[major][tabMultipleIndices[major][minor+1]*3+1] = tabMultipleNormals[major][tabMultipleIndices[major][minor]*3+1];
+						tabMultipleFalseNormals[major][tabMultipleIndices[major][minor+1]*3+2] = tabMultipleNormals[major][tabMultipleIndices[major][minor]*3+2];
+						tabMultipleFalseNormals[major][tabMultipleIndices[major][minor+2]*3] = tabMultipleNormals[major][tabMultipleIndices[major][minor]*3];
+						tabMultipleFalseNormals[major][tabMultipleIndices[major][minor+2]*3+1] = tabMultipleNormals[major][tabMultipleIndices[major][minor]*3+1];
+						tabMultipleFalseNormals[major][tabMultipleIndices[major][minor+2]*3+2] = tabMultipleNormals[major][tabMultipleIndices[major][minor]*3+2];
+					}
+				}
+			}
+			function initShaderParameters(prg){
+				prg.vertexPositionAttribute = glContext.getAttribLocation(prg, "aVertexPosition");
+			    glContext.enableVertexAttribArray(prg.vertexPositionAttribute);
+			    prg.vertexNormalAttribute = glContext.getAttribLocation(prg, "aVertexNormal");
+			    glContext.enableVertexAttribArray(prg.vertexNormalAttribute);
+			    prg.pMatrixUniform             = glContext.getUniformLocation(prg, 'uPMatrix');
+			    prg.mvMatrixUniform            = glContext.getUniformLocation(prg, 'uMVMatrix');
+			    prg.nMatrixUniform             = glContext.getUniformLocation(prg, 'uNMatrix');
+			    prg.lightPositionUniform       = glContext.getUniformLocation(prg, 'uLightPosition');
+			    prg.shininessUniform           = glContext.getUniformLocation(prg, 'uShininess');
+			    prg.lightAmbientUniform        = glContext.getUniformLocation(prg, 'uLightAmbient');
+			    prg.materialDiffuseUniform     = glContext.getUniformLocation(prg, 'uMaterialDiffuse');
+			    prg.materialSpecularUniform    = glContext.getUniformLocation(prg, 'uMaterialSpecular');
+			}
+			function loadModel(filename){
+			    var request = new XMLHttpRequest();
+			    console.info('Requesting ' + filename);
+			    request.open("GET",filename);
+			    request.onreadystatechange = function() {
+			      if (request.readyState == 4) {
+			        if(request.status == 404) {
+			            console.info(filename + ' does not exist');
+			         }
+			        else {
+			            handleLoadedModel(filename,JSON.parse(request.responseText));
+			        }
+			      }
+			    }
+			    request.send();
+			}
+			function handleLoadedModel(filename,payload) {
+			    console.info(filename + ' has been retrieved from the server');
+				console.log("vertices: "+payload.vertices.length);
+				console.log("normals: "+payload.normals.length);
+				console.log("indices: "+payload.indices.length);
+				tabMultipleIndices = new Array();
+				tabMultipleVertices = new Array();
+				tabMultipleNormals = new Array();
+				tabMultipleIndices[0] = payload.indices;
+				tabMultipleVertices[0] = payload.vertices;
+				tabMultipleNormals[0] = payload.normals;
+				tabOriginalIndices = payload.indices;
+				tabOriginalVertices = payload.vertices;
+				tabOriginalNormals = payload.normals;
+				modelBreakPhong();
+				initLights();
+				modelPrintInfos();
+				updateBuffers()
+				renderLoop();
+			}
+			
+			function updateBuffers(){
+				for (var i=0; i<tabMultipleIndices.length; i++)
+				{
+					vertexBuffers[i] = getVertexBufferWithVertices(tabMultipleVertices[i]);
+					normalsBuffers[i] = getVertexBufferWithVertices(tabMultipleFalseNormals[i]);
+					indexBuffers[i] = getIndexBufferWithIndices(tabMultipleIndices[i]);
+				}
+			
+			}
+			
+			function degToRad(degrees){
+				return( degrees * Math.PI / 180.0 );
+			}
+			function initLights(){
+			    glContext.uniform3f(prg.lightPositionUniform, 1, 1, 1);
+			    glContext.uniform3f(prg.lightAmbientUniform,0.1,0.1,0.1);
+				glContext.uniform3f(prg.materialSpecularUniform, 0.5,0.5,0.5);
+				glContext.uniform3f(prg.materialDiffuseUniform, 0.6,0.6,0.6);
+			    glContext.uniform1f(prg.shininessUniform, 24.0);
+			}
+			function drawScene(){
+				glContext.clearColor(0.9, 0.9, 1.0, 1.0);
+				glContext.enable(glContext.DEPTH_TEST);
+				glContext.clear(glContext.COLOR_BUFFER_BIT | glContext.DEPTH_BUFFER_BIT);
+				glContext.viewport(0, 0, c_width, c_height);
+				mat4.perspective(pMatrix, degToRad(40), c_width / c_height, 0.1, 1000.0);
+				mat4.identity(mvMatrix);
+			    var tx = 0;
+			    var ty = -0.4;
+				var tz = -1.3;
+				mat4.translate(mvMatrix, mvMatrix, [tx, ty, tz]);
+			    mat4.rotateY(mvMatrix, mvMatrix, degToRad(rotY));
+			    mat4.rotateX(mvMatrix, mvMatrix, degToRad(rotX));
+			    glContext.uniformMatrix4fv(prg.pMatrixUniform, false, pMatrix);
+			    glContext.uniformMatrix4fv(prg.mvMatrixUniform, false, mvMatrix);
+			    mat4.copy(nMatrix, mvMatrix);
+			    mat4.invert(nMatrix, nMatrix);
+			    mat4.transpose(nMatrix, nMatrix);
+				rotateModelViewMatrixUsingQuaternion(false);
+			    glContext.uniformMatrix4fv(prg.nMatrixUniform, false, nMatrix);
+				for (var i=0; i<tabMultipleIndices.length; i++)
+				{
+					glContext.bindBuffer(glContext.ARRAY_BUFFER, vertexBuffers[i]);
+					glContext.vertexAttribPointer(prg.vertexPositionAttribute, 3, glContext.FLOAT, false, 0, 0);
+					glContext.bindBuffer(glContext.ARRAY_BUFFER, normalsBuffers[i]);
+					glContext.vertexAttribPointer(prg.vertexNormalAttribute, 3, glContext.FLOAT, false, 0, 0);
+					glContext.bindBuffer(glContext.ELEMENT_ARRAY_BUFFER, indexBuffers[i]);
+					glContext.drawElements(glContext.TRIANGLES, tabMultipleIndices[i].length, glContext.UNSIGNED_SHORT,0);
+				}
+			}
+			function initWebGL(){
+				glContext = getGLContext('webgl-canvas');
+				initProgram();
+				loadModel("./models/android.json");
+			}
+			function changeModel()
+			{
+				var path = './models/' + document.getElementById('listmodel').value + '.json';
+				loadModel(path);
+			}
+		</script>
+	</head>
+	<body onload="initWebGL()">
+		<script>displayTitle("Ch.08 E.g.2 : Visualisation de plusieurs modèles 3D avec subdivision de modèle 3D", 1,1,2,1,1,1,1);</script>
+		<p>
+			Subdivisions du modèle de base<br>'+' : quadrupler le nombre de faces ; '-' : divisier par 4 le nombre de faces
+		<p>
+			Choisissez un modèle :
+			<select id="listmodel" onchange="changeModel()">
+				<option value="buggy">Buggy</option>
+				<option value="charett">Charette</option>
+				<option value="homeCinema">Home cinéma</option>
+				<option value="extincteur">Extincteur</option>
+				<option value="lampe">Lampe</option>
+				<option value="lance">Lance à incendie</option>
+				<option value="lego">Bonhomme LEGO</option>
+				<option value="motopompe">Motopompe type I</option>
+				<option value="palettes">Palettes en bois</option>
+				<option value="portable">Ordinateur portable</option>
+				<option value="remorque">Remorque</option>
+				<option value="rover">Mars Rover</option>
+				<option value="axes">axes</option>
+				<option value="stanfordBunny">stanford bunny</option>
+				<option value="cachalot">cachalot</option>
+				<option value="chaise">chaise</option>
+				<option value="cle">cle</option>
+				<option value="fleurs">fleurs</option>
+				<option value="helicopter">helicopter</option>
+				<option value="meuble">meuble</option>
+				<option value="robinet">robinet</option>
+				<option value="shoes">shoes</option>
+				<option value="square">square</option>
+				<option value="square_normals">square_normals</option>
+				<option value="table">table</option>
+				<option value="teapot">teapot</option>
+				<option value="usb">usb</option>
+				<option value="Agent_Smith">Agent Smith</option>
+				<option value="B747">Boeing 747</option>
+				<option value="bird">Oiseau</option>
+				<option value="challenger">Dodge Challenger</option>
+				<option value="dog">Chien</option>
+				<option value="ducati">Ducati</option>
+				<option value="fish">Poisson</option>
+				<option value="helico">Hélicoptère</option>
+				<option value="house">Phare</option>
+				<option value="mario">Mario</option>
+				<option value="Morpheus">Morpheus</option>
+				<option value="Neo">Neo</option>
+				<option value="Porsche_911_GT2">Porsche 911 GT2</option>
+				<option value="seating">Femme</option>
+				<option value="sheep">Mouton</option>
+				<option value="skellet">Squelette</option>
+				<option value="sub">Sous-marin</option>
+				<option value="train">Train</option>
+				<option value="werewolf">Loup-garou</option>
+				<option value="RB-Mirage">Mirage </option>
+				<option value="VH-Mirage">Mirage véhicule</option>
+				<option value="Salvador.json;0;-0.3;0;-0.7;0;0">Salvador (Borderlands 2)</option>
+				<option value="ToyPlane.json;0;-0.1;0.0;-0.8;0;-180.0">ToyPlane</option>
+				<option value="MrHumpty.json;0;-0.3;0;-1.0;0;0">Mr. Humpty</option>
+				<option value="crane.json;0;-0.3;0;-1.0;0;0">Origami</option>
+				<option value="King.json;0;-0.3;0;-1.0;0;0">Roi - échiquier</option>
+				<option value="piggy.json;0;-0.3;0;-1.0;0;0">Cochon</option>
+				<option value="luigi textured obj.json;0;-0.3;0;-1.0;0;0">Luigi</option>
+				<option value="minion for upload.json;0;-0.3;0;-1.0;0;0">Minion (moi moche et méchant)</option>
+				<option value="IronMan.json;0;-0.3;0;-1.0;0;0">Ironman</option>
+				<option value="VMask.json;0;-0.3;0;-1.0;0;180">Anonymous masque</option>
+				<option value="SCAR H.json;-0.3;0;0;-0.6;-90;-90.0">SCAR H</option>
+				<option value="Capitan America.json;0;-0.3;0;-0.7;0;0">Cpt America</option>
+				<option value="Capitan America shield.json;0;0;0;-1.0;90.0;0">Cpt America bouclier</option>
+				<option value="patrick.json;0;-0.3;-0.8;0;0;0">Patrick (bob l'éponge)</option>
+				<option value="ita.json;0;-0.3;0;-1.0;0;0">itachi (naruto)</option>
+				<option value="a380">Airbus A380</option>
+				<option value="dino">Dinosaure</option>
+				<option value="f1">Formule 1</option>
+				<option value="fa18">F/A-18 Hornet</option>
+				<option value="homer">Homer Simpson</option>
+				<option value="hydrant">Hydrante</option>
+				<option value="iss">Station spatiale internationale</option>
+				<option value="minigun">Minigun</option>
+				<option value="piano">Piano à queue</option>
+				<option value="playstation">Playstation 1</option>
+				<option value="quad">Quad</option>
+				<option value="rhino">Rhinocéros</option>
+				<option value="scrat">Scrat (L'Âge de glace)</option>
+				<option value="shark">Requin</option>
+				<option value="sls">Mercedes-Benz SLS AMG</option>
+				<option value="spongebob">Bob l'éponge</option>
+				<option value="squeeze">Squeeze (Toy Story)</option>
+				<option value="sts">Navette spatiale américaine</option>
+				<option value="tank">Tank</option>
+				<option value="tron">Moto (Tron)</option>
+				<option value="typewriter">Machine à écrire</option>
+				<option value="ufo">OVNI</option>
+				<option value="wc">WC</option>
+				<option value="android" selected="selected">Android</option>
+				<option value="yoda">Maître Yoda</option>
+			</select>
+		</p>
+		<ul>
+			Nombre de faces : <a id="nbfaces">x</a> ; nombre de vertices : <a id="nbvertices">x</a> ; nombre de subdivisions : <a id="nbsubdivisions">x</a>
+		</ul>
+		<canvas id="webgl-canvas" width="500" height="500">
+			HTML5 is not supported
+		</canvas>
+	</body>
+	<script src='./js/mouseMotionHandling.js'></script>
+</html>

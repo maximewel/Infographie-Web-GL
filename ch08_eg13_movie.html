@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="fr">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="stylesheet" href="css/stylesheet.css">
+		<script src="js/commonFunctions.js"></script>
+		<script src="js/gl-matrix-min.js"></script>
+		<script src="js/webglTools.js"></script>
+		<script id="shader-vs" type="x-shader/x-vertex">
+			attribute vec3 aVertexPosition;
+			attribute vec2 aTextureCoord;
+			uniform mat4 uMVMatrix;
+			uniform mat4 uPMatrix;
+			varying vec2 vTextureCoord;
+			void main(void) {
+				vTextureCoord = aTextureCoord;
+				gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
+			}
+		</script>
+		<script id="shader-fs" type="x-shader/x-fragment">
+			#ifdef GL_ES
+			precision lowp float;
+			#endif
+			uniform sampler2D uColorTexture;
+			uniform float deltaTexX;
+			uniform float deltaTexY;
+			varying vec2 vTextureCoord;
+			void main(void) {
+				if(gl_FrontFacing)
+				{
+					vec2 offset = vec2(deltaTexX, deltaTexY);
+					vec2 mapCoord = vec2(vTextureCoord.s, vTextureCoord.t);
+					mapCoord += offset;
+					if(mapCoord.x > 1.0) mapCoord.x -= 1.0;
+					if(mapCoord.y > 1.0) mapCoord.y -= 1.0;
+					vec4 texelColor = texture2D(uColorTexture, mapCoord);
+					gl_FragColor = texelColor.rgba;
+				}
+				else
+				gl_FragColor = vec4( 0.1, 0.1, 0.1, 1.0 );
+			}
+		</script>
+		<script>
+			var currentTexID = 1;
+			const maxSample = 9;
+			var normalBuffer = null;
+			var vertexBuffer = null;
+			var indexBuffer = null;
+			var textCoordsBuffer = null;
+			var videoTexture = null;
+			var video = null;
+			var videoready = false;
+			var indices = [];
+			var vertices = [];
+			var textCoords =[];
+			var mvMatrix = mat4.create();
+			var pMatrix = mat4.create();
+			var normalMatrix = mat4.create();
+			var rotObject = 0;
+			var objectInRotation = 0;
+			var textureInTranslation = 0;
+			var textureOffsetX = 0.0;
+			var textureOffsetY = 0.0;
+			const deltaTranslateX = 0.001;
+			const deltaTranslateY = 0.002;
+			function initVideoTexture(){
+				videoTexture = glContext.createTexture();
+				video = document.createElement("video");
+				video.autoplay = true;
+				video.loop = true;
+				video.oncanplay = function(){ videoready=true; }
+				video.onerror = function(){
+					var err = "unknown error";
+					switch(video.error.code){
+						case 1: err = "video loading aborted"; break;
+						case 2: err = "network loading error"; break;
+						case 3: err = "video decoding failed / corrupted data or unsupported codec"; break;
+						case 4: err = "video not supported"; break;
+					};
+					console.log("Error: " + err + " (errorcode="+video.error.code+")", "color:red;");
+				};
+				video.src = "Video/big_buck_bunny.mp4";
+				video.play();
+				glContext.bindTexture(glContext.TEXTURE_2D, videoTexture);
+				glContext.pixelStorei(glContext.UNPACK_FLIP_Y_WEBGL, true);
+				glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MIN_FILTER, glContext.NEAREST);
+				glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MAG_FILTER, glContext.NEAREST);
+				glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_S, glContext.CLAMP_TO_EDGE);
+				glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_T, glContext.CLAMP_TO_EDGE);
+			}
+			function initShaderParameters(prg){
+				prg.vertexPositionAttribute = glContext.getAttribLocation(prg, "aVertexPosition");
+				glContext.enableVertexAttribArray(prg.vertexPositionAttribute);
+				prg.textureCoordsAttribute  = glContext.getAttribLocation(prg, "aTextureCoord");
+				glContext.enableVertexAttribArray(prg.textureCoordsAttribute);
+				prg.pMatrixUniform          = glContext.getUniformLocation(prg, 'uPMatrix');
+				prg.mvMatrixUniform         = glContext.getUniformLocation(prg, 'uMVMatrix');
+				prg.colorTextureUniform 	= glContext.getUniformLocation(prg, "uColorTexture");
+				prg.deltaTexX 				= glContext.getUniformLocation(prg, "deltaTexX");
+				prg.deltaTexY				= glContext.getUniformLocation(prg, "deltaTexY");
+			}
+			function initBuffers(){
+				vertices = [ -1.0, -0.556, 0.0,
+							  1.0, -0.556, 0.0,
+							 -1.0,  0.556, 0.0,
+							  1.0,  0.556, 0.0 ];
+				normals = [ 0.0, 0.0, 1.0,
+							0.0, 0.0, 1.0,
+							0.0, 0.0, 1.0,
+							0.0, 0.0, 1.0 ];
+				indices = [ 0, 1, 2, 3 ];
+				textCoords = [  0.0, 0.0,
+								1.0, 0.0,
+								0.0, 1.0,
+								1.0, 1.0 ];
+				normalBuffer     = getArrayBufferWithArray(normals);
+				vertexBuffer     = getArrayBufferWithArray(vertices);
+				indexBuffer      = getIndexBufferWithIndices(indices);
+				textCoordsBuffer = getArrayBufferWithArray(textCoords);
+			}
+			function drawScene(){
+				glContext.clearColor(0.0, 0.0, 0.0, 1.0);
+				glContext.enable(glContext.DEPTH_TEST);
+				glContext.clear(glContext.COLOR_BUFFER_BIT | glContext.DEPTH_BUFFER_BIT);
+				glContext.viewport( 0.0, 0.0, c_width, c_height);
+				mat4.perspective(pMatrix, degToRad(60), c_width / c_height, 0.1, 1000.0);
+				switch( textureInTranslation ) {
+					case 1:
+					console.log( "c1" );
+						if (textureOffsetX<1.0) textureOffsetX += deltaTranslateX;
+						else textureOffsetX = 0.0;
+					break;
+					case 2:
+					console.log( "c2" );
+						if (textureOffsetY<1.0) textureOffsetY += deltaTranslateY;
+						else textureOffsetY = 0.0;
+					break;
+					case 3:
+					console.log( "c3" );
+						if (textureOffsetX<1.0) textureOffsetX += deltaTranslateX;
+						else textureOffsetX = 0.0;
+						if (textureOffsetY<1.0) textureOffsetY += deltaTranslateY;
+						else textureOffsetY = 0.0;
+					break;
+				}
+				
+				var tx = 0;
+				var ty = 0;
+				var tz = -2.0;
+				translationMat = mat4.create();
+				mat4.identity(translationMat);
+				mat4.translate(translationMat, translationMat, [tx, ty, tz]);
+				rotateModelViewMatrixUsingQuaternion(true);
+				var modelViewMatrix = mat4.multiply(mat4.create(), translationMat, mvMatrix);
+				glContext.uniformMatrix4fv(prg.pMatrixUniform, false, pMatrix);
+				glContext.uniformMatrix4fv(prg.mvMatrixUniform, false, modelViewMatrix);
+				glContext.bindBuffer(glContext.ARRAY_BUFFER, normalBuffer);
+				glContext.vertexAttribPointer(prg.vertexNormalAttribute, 3, glContext.FLOAT, false, 0, 0);
+				glContext.bindBuffer(glContext.ARRAY_BUFFER, vertexBuffer);
+				glContext.vertexAttribPointer(prg.vertexPositionAttribute, 3, glContext.FLOAT, false, 0, 0);
+				glContext.bindBuffer(glContext.ARRAY_BUFFER, textCoordsBuffer);
+				glContext.vertexAttribPointer(prg.textureCoordsAttribute, 2, glContext.FLOAT, false, 0, 0);
+				glContext.activeTexture(glContext.TEXTURE0);
+				glContext.bindTexture(glContext.TEXTURE_2D, videoTexture);
+				if (videoready){
+					glContext.texImage2D(glContext.TEXTURE_2D, 0, glContext.RGB, glContext.RGB, glContext.UNSIGNED_BYTE, video);
+				}
+				glContext.uniform1i(prg.colorTextureUniform, 0);
+				glContext.uniform1f(prg.deltaTexX, textureOffsetX);
+				glContext.uniform1f(prg.deltaTexY, textureOffsetY);
+				glContext.bindBuffer(glContext.ELEMENT_ARRAY_BUFFER, indexBuffer);
+				glContext.drawElements(glContext.TRIANGLE_STRIP, indices.length, glContext.UNSIGNED_SHORT,0);
+			}
+			function initWebGL(){
+				glContext = getGLContext('webgl-canvas');
+				initProgram();
+				initBuffers();
+				initVideoTexture();
+				renderLoop();
+			}
+		</script>
+		<script>
+			function animateObject(){
+				if( document.getElementById("animateCheckBox1").checked )
+					objectInRotation = 1;
+				else
+					objectInRotation = 0;
+			}
+			function animateTexture(){
+				if( document.getElementById("animateCheckBox2").checked )
+					textureInTranslation = 1;
+				else
+					textureInTranslation = 0;
+				if( document.getElementById("animateCheckBox3").checked )
+					textureInTranslation += 2;
+			}
+		</script>
+	</head>
+	<body onload="initWebGL()">
+		<script>displayTitle("Ch.08 E.g.13 : Texture vidéo", 1,0,1,1,0,1,1);</script><br>
+			<input id="animateCheckBox2" type="checkbox" onchange="animateTexture()">Texture sur X</input><br>
+			<input id="animateCheckBox3" type="checkbox" onchange="animateTexture()">texture sur Y</input>
+			<br />
+		</p>
+		<canvas id="webgl-canvas" width="500" height="500">
+			HTML5 is not supported
+		</canvas>
+		<script src='./js/mouseMotionHandling.js'></script>
+	</body>
+</html>

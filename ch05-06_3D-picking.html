@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="fr">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="stylesheet" href="css/stylesheet.css">
+		<script src="js/commonFunctions.js"></script>	
+		<script src="js/gl-matrix-min.js"></script>		
+		<script src="js/webglTools.js"></script>		
+		<script id="shader-vs" type="x-shader/x-vertex">
+			attribute vec4 aColor;
+			attribute vec3 aVertexPosition;			
+			uniform mat4 uMVMatrix;
+			uniform mat4 uPMatrix;
+			varying vec4 vColor;
+			void main(void) {
+				vColor = aColor;
+				gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
+			}
+		</script>
+		<script id="shader-fs" type="x-shader/x-fragment">
+			#ifdef GL_ES
+				precision highp float;
+			#endif
+			varying vec4 vColor;
+			void main(void) {
+				gl_FragColor = vColor;
+			}
+		</script>
+		<script>
+			var canvas2D;
+			var ctx2d;
+			var canvas2dHalfWidth;
+			var canvas2dHalfHeight;
+			var sortedTriangles;
+			var canvas2dBackColor = [240,240,240];
+			function setup2dCanvas(){
+				canvas2D = document.createElement("canvas");
+				canvas2D.width = 500;
+				canvas2D.height = 500;
+				canvas2dHalfWidth = canvas2D.width / 2;
+				canvas2dHalfHeight = canvas2D.height / 2;
+				ctx2d = canvas2D.getContext("2d");
+				ctx2d.fillStyle = "rgb("+canvas2dBackColor[0]+","+canvas2dBackColor[1]+
+								","+canvas2dBackColor[2]+")";
+				ctx2d.fillRect(0, 0, canvas2D.width, canvas2D.height);
+				document.getElementById("2dCanvas").appendChild(canvas2D);
+			}
+			function clear2dCanvas(){
+				ctx2d.fillStyle = "rgb(240,240,240)";
+				ctx2d.fillRect(0, 0, canvas2D.width, canvas2D.height);	
+			}
+			function fillTriangle(v,color){
+				v0 = v[0];
+				v1 = v[1];
+				v2 = v[2];
+				ctx2d.fillStyle = "rgb("+color[0].toFixed(0)+","+color[1].toFixed(0)+","+color[2].toFixed(0)+")";
+				ctx2d.beginPath();
+				ctx2d.moveTo(v0[0], v0[1]);
+				ctx2d.lineTo(v1[0], v1[1]);
+				ctx2d.lineTo(v2[0], v2[1]);
+				ctx2d.closePath();
+				ctx2d.fill();
+			}
+			function getPixelColorAtPoint(pX,pY){
+				return ctx2d.getImageData(pX,pY,1,1).data;
+			}
+			function processClickAt(pX,pY){
+				pixelColor = getPixelColorAtPoint(pX,pY);
+				if (canvas2dBackColor[0] == pixelColor[0] && 
+					canvas2dBackColor[1] == pixelColor[1] &&
+					canvas2dBackColor[2] == pixelColor[2]){
+						return;
+				}
+				for (var i = 0; i < objectsInScene.length; i++){
+					var obj = objectsInScene[i];
+					if (obj.colorId[0] == pixelColor[0] && 
+						obj.colorId[1] == pixelColor[1] &&
+						obj.colorId[2] == pixelColor[2]){
+							obj.selected = true;
+					}else{
+						obj.selected = false;
+					}
+				}
+			}
+			function drawTriangleIn2dCanvas(tri){
+				var screenVertices = [];					
+				for(var jj = 0; jj < 3; jj++){
+					v = tri[jj];
+					var nvert = [v[0]/v[3], v[1]/v[3]];
+					screenVertices.push([nvert[0]*canvas2dHalfWidth + canvas2dHalfWidth, 
+					canvas2dHalfHeight - nvert[1]*canvas2dHalfHeight]);
+				}
+				fillTriangle(screenVertices,tri[3]);
+			}
+			var objectsInScene = null;
+			var mvMatrix = mat4.create(); 
+			var pMatrix = mat4.create(); 
+			var currentRy = 0;
+			var tx = 0;
+			var ty = -2;
+			var tz = -8;
+			window.onkeydown = checkKey;
+			function checkKey(ev){
+				switch(ev.keyCode){
+					case 87: 
+						tz++;
+						break;
+					case 83: 
+						tz--;
+						break;
+					case 68: 
+						tx++;
+						break;
+					case 65: 
+						tx--;
+						break;
+					case 82: 
+						ty++;
+						break;
+					case 70: 
+						ty--;
+						break;
+					default:
+					  console.log(ev.keyCode); 
+					break;
+				}
+			}
+			function initShaderParameters(prg){
+				prg.vertexPositionAttribute = glContext.getAttribLocation(prg, "aVertexPosition");
+			    glContext.enableVertexAttribArray(prg.vertexPositionAttribute);
+			    prg.vertexNormalAttribute = glContext.getAttribLocation(prg, "aColor");
+			    glContext.enableVertexAttribArray(prg.vertexNormalAttribute);
+			    prg.pMatrixUniform             = glContext.getUniformLocation(prg, 'uPMatrix');
+			    prg.mvMatrixUniform            = glContext.getUniformLocation(prg, 'uMVMatrix');
+			}
+			function compareTriangles(a,b){
+				ta0 = a[0];
+				ta1 = a[1];
+				ta2 = a[2];
+				avgZa = (ta0[2] + ta1[2] + ta2[2])/3.0;
+				tb0 = b[0];
+				tb1 = b[1];
+				tb2 = b[2];
+				avgZb = (tb0[2] + tb1[2] + tb2[2])/3.0;
+				if (avgZa < avgZb)
+					return 1;
+				if (avgZa > avgZb)
+					return -1;
+				return 0;
+			}
+			function renderBoundingBoxes(){
+				sortedTriangles.sort(compareTriangles);
+				for (var k = 0; k < sortedTriangles.length; k++){
+					drawTriangleIn2dCanvas(sortedTriangles[k]);	
+				}
+			}
+			function Cylinder(r,h,s,pos,clr,clrId){
+				this.radius = r;
+				this.height = h;
+				this.position = pos;
+				this.slices = s;
+				this.baseColor = clr;
+				this.selectedColor = [0.9,0.2,0.1];
+				this.colorId = clrId;
+				this.selected = false;
+				this.gMVmatrix; 
+				this.gPmatrix; 
+				this.vertices = [];
+				this.colorsUnSelected = [];
+				this.colorsSelected = [];
+				this.indices = [];
+				this.vertexBuffer;
+				this.colorBufferUnSelected;
+				this.colorBufferSelected;
+				this.indexBuffer;
+				this.boundingCoords = [];
+				this.boundingIndices = [];
+				this.setupBoundingBox = function(){
+					var rPercent = 0.8;
+					this.boundingCoords.push([-this.radius*rPercent,0,this.radius*rPercent]);
+					this.boundingCoords.push([this.radius*rPercent,0,this.radius*rPercent]);
+					this.boundingCoords.push([-this.radius*rPercent,this.height,this.radius*rPercent]);
+					this.boundingCoords.push([this.radius*rPercent,this.height,this.radius*rPercent]);
+					this.boundingCoords.push([-this.radius*rPercent,0,-this.radius*rPercent]);
+					this.boundingCoords.push([this.radius*rPercent,0,-this.radius*rPercent]);
+					this.boundingCoords.push([-this.radius*rPercent,this.height,-this.radius*rPercent]);
+					this.boundingCoords.push([this.radius*rPercent,this.height,-this.radius*rPercent]);
+					this.boundingIndices.push(0,1,2);
+					this.boundingIndices.push(2,1,3);
+					this.boundingIndices.push(4,6,5);
+					this.boundingIndices.push(6,7,5);
+					this.boundingIndices.push(1,5,3);
+					this.boundingIndices.push(3,5,7);
+					this.boundingIndices.push(0,2,4);
+					this.boundingIndices.push(2,6,4);
+					this.boundingIndices.push(2,3,6);
+					this.boundingIndices.push(6,3,7);
+					this.boundingIndices.push(0,4,1);
+					this.boundingIndices.push(4,5,1);
+				}
+				this.applyMVPmatrix = function(v){
+					var vertex = [v[0],v[1],v[2],1.0];
+					this.gPmatrix = mat4.create();
+					mat4.perspective(this.gPmatrix, degToRad(60), c_width / c_height, 0.1, 100.0);
+					var mvpMatrix = mat4.create();
+					mat4.multiply(mvpMatrix, this.gPmatrix, this.gMVmatrix);
+					var screenCoords = vec4.create();
+					vec4.transformMat4(screenCoords, vertex, mvpMatrix);
+					return screenCoords;					
+				}
+				this.transformBoundingBox = function(){
+					var bbTri = [];
+					for (var t = 0; t < this.boundingIndices.length; t++){						
+						mvpCoords = this.applyMVPmatrix(this.boundingCoords[this.boundingIndices[t]]);
+						bbTri.push(mvpCoords);			
+					}
+					for (var tt = 0; tt < bbTri.length; tt+=3){
+						sortedTriangles.push([bbTri[tt],bbTri[tt+1],bbTri[tt+2],this.colorId]);						
+					}
+				}
+				this.generateCylinder = function(){
+					dt = Math.PI*2.0 / this.slices;
+					dColor = 1.0/(this.slices * 2);
+					cShade = 1.0;
+					s = 0;
+					for (h = 0; h <= this.height; h += this.height){
+						for (t = 0; t <= Math.PI*2.0; t += dt){
+							cosT = Math.cos(t);
+							sinT = Math.sin(t);
+							x = this.radius * sinT;
+							y = h;
+							z = this.radius * cosT;
+							this.vertices.push(x,y,z);
+							for (var c = 0; c < 3; c++){
+								this.colorsUnSelected.push(this.baseColor[c]*cShade);
+								this.colorsSelected.push(this.selectedColor[c]*cShade);
+							}
+							this.colorsUnSelected.push(1.0);
+							this.colorsSelected.push(1.0);
+							cShade = s % 3 == 0 ? 0.90 : 1.0
+							s++;
+						}	
+					}
+					this.vertices.push(0,0,0);
+					for (var c = 0; c < 3; c++){						
+						this.colorsUnSelected.push(this.baseColor[c]*cShade);
+						this.colorsSelected.push(this.selectedColor[c]*cShade);
+					}
+					this.colorsUnSelected.push(1.0);
+					this.colorsSelected.push(1.0);
+					this.vertices.push(0,this.height,0);
+					for (var c = 0; c < 3; c++){
+						this.colorsUnSelected.push(this.baseColor[c]*cShade);
+						this.colorsSelected.push(this.selectedColor[c]*cShade);
+					}
+					this.colorsUnSelected.push(1.0);
+					this.colorsSelected.push(1.0);
+					bottomCenterIndx = this.vertices.length/3 -2;
+					topCenterIndx = this.vertices.length/3 -1;
+					for (i = 0; i < this.slices; i++){
+						this.indices.push(i, i+1, this.slices+i+1);
+						this.indices.push(this.slices+i+1, i+1, this.slices+i+2);
+						this.indices.push(i, bottomCenterIndx, i+1);
+						this.indices.push(this.slices+i+1, this.slices+i+2, topCenterIndx);
+					}
+				}
+				this.init = function(){
+					this.generateCylinder();
+					this.vertexBuffer    = getArrayBufferWithArray(this.vertices);
+					this.colorBufferUnSelected 	= getArrayBufferWithArray(this.colorsUnSelected);
+					this.colorBufferSelected 	= getArrayBufferWithArray(this.colorsSelected);
+					this.indexBuffer 	= getIndexBufferWithIndices(this.indices);
+					this.setupBoundingBox();
+				}
+				this.render = function(){
+					translationMat = mat4.create();
+					mat4.identity(translationMat);
+					mat4.translate(translationMat, translationMat, this.position);
+					var modelViewMatrix = mat4.create();
+					mat4.multiply(modelViewMatrix, this.gMVmatrix, translationMat);
+				    glContext.uniformMatrix4fv(prg.mvMatrixUniform, false, modelViewMatrix);
+					var colorBuffer = this.selected ? this.colorBufferSelected : this.colorBufferUnSelected;
+					glContext.bindBuffer(glContext.ARRAY_BUFFER, colorBuffer);
+					glContext.vertexAttribPointer(prg.colorAttribute, 4, glContext.FLOAT, false, 0, 0);
+					glContext.bindBuffer(glContext.ARRAY_BUFFER, this.vertexBuffer);
+					glContext.vertexAttribPointer(prg.vertexPositionAttribute, 3, glContext.FLOAT, false, 0, 0);
+					glContext.bindBuffer(glContext.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+					glContext.drawElements(glContext.TRIANGLES, this.indices.length, glContext.UNSIGNED_SHORT,0);
+					this.gMVmatrix = modelViewMatrix;
+				}
+			}
+			var plane;
+			function Plane(){
+				this.vertices;
+				this.colors;
+				this.indices;
+				this.vertexBuffer;
+				this.colorBuffer;
+				this.indexBuffer;
+			}
+			function setupPlane(){
+				side = 10;
+				plane = new Plane();
+				plane.vertices = [];
+				plane.vertices.push(-side,0,side);
+				plane.vertices.push(side,0,side);
+				plane.vertices.push(-side,0,-side);
+				plane.vertices.push(side,0,-side);
+				plane.colors = [];
+				planeColor = [0.1,0.9,0.2];
+				factor = 0.8;
+				plane.colors.push(planeColor[0],planeColor[1],planeColor[2],1.0);
+				plane.colors.push(planeColor[0],planeColor[1],planeColor[2],1.0);
+				plane.colors.push(planeColor[0]*factor,planeColor[1]*factor,planeColor[2]*factor,1.0);
+				plane.colors.push(planeColor[0]*factor,planeColor[1]*factor,planeColor[2]*factor,1.0);
+				plane.indices = [0,1,2,2,1,3];
+				plane.vertexBuffer    = getArrayBufferWithArray(plane.vertices);
+				plane.colorBuffer 	= getArrayBufferWithArray(plane.colors);
+				plane.indexBuffer 	= getIndexBufferWithIndices(plane.indices);
+			}
+			function renderPlane(modelViewMatrix){
+			    glContext.uniformMatrix4fv(prg.mvMatrixUniform, false, modelViewMatrix);
+				glContext.bindBuffer(glContext.ARRAY_BUFFER, plane.colorBuffer);				
+				glContext.vertexAttribPointer(prg.colorAttribute, 4, glContext.FLOAT, false, 0, 0);
+				glContext.bindBuffer(glContext.ARRAY_BUFFER, plane.vertexBuffer);
+				glContext.vertexAttribPointer(prg.vertexPositionAttribute, 3, glContext.FLOAT, false, 0, 0);
+				glContext.bindBuffer(glContext.ELEMENT_ARRAY_BUFFER, plane.indexBuffer);
+				glContext.drawElements(glContext.TRIANGLES, plane.indices.length, glContext.UNSIGNED_SHORT,0);
+			}
+			function setup3dObjects(){
+				setupPlane();
+				objectsInScene = [];
+				var cil = new Cylinder(1,2,20,[-2,0,0],[0.3,0.4,0.9],[255,0,0]);
+				cil.init()
+				objectsInScene.push(cil);
+				var cil1 = new Cylinder(0.5,1.5,20,[0,0,2],[0.3,0.4,0.9],[0,255,0]);
+				cil1.init()
+				objectsInScene.push(cil1);
+				var cil2 = new Cylinder(0.5,2.5,20,[2,0,0],[0.3,0.4,0.9],[0,0,255]);
+				cil2.init()
+				objectsInScene.push(cil2);
+			}
+			function drawObjects(projectionMatrix,modelViewMatrix){
+				clear2dCanvas();
+				sortedTriangles = [];
+				renderPlane(modelViewMatrix);
+				for (i = 0; i < objectsInScene.length; i++){
+					o = objectsInScene[i];
+					mvMtrx = mat4.clone(modelViewMatrix);
+					o.gMVmatrix = mvMtrx;
+					o.gPmatrix = projectionMatrix;
+					o.render();
+					o.transformBoundingBox();
+				}				
+				renderBoundingBoxes();
+			}
+			function drawScene(){
+				glContext.clearColor(0.9, 0.9, 1.0, 1.0); 
+				glContext.enable(glContext.DEPTH_TEST);
+				glContext.clear(glContext.COLOR_BUFFER_BIT | glContext.DEPTH_BUFFER_BIT);
+				glContext.viewport(0, 0, c_width, c_height);
+			    mat4.perspective(pMatrix, degToRad(60), c_width / c_height, 0.1, 100.0);
+			    glContext.uniformMatrix4fv(prg.pMatrixUniform, false, pMatrix);
+				mat4.identity(mvMatrix);
+				translationMat = mat4.create();
+				mat4.identity(translationMat);
+				mat4.translate(translationMat, translationMat, [tx, ty, tz]);
+				rotateModelViewMatrixUsingQuaternion();
+				modelViewMatrix = mat4.create();
+				mat4.multiply(modelViewMatrix, translationMat, mvMatrix);
+				drawObjects(pMatrix, modelViewMatrix);	
+			}
+			function startRenderLoop(){
+				mat4.identity(mvMatrix);
+				renderLoop();
+			}
+			function initWebGL(){
+				glContext = getGLContext('webgl-canvas');
+				initProgram();
+				setup2dCanvas();
+				setup3dObjects();
+				startRenderLoop();
+			}
+			function toggle2dCanvas(checkbox){
+				if (checkbox.checked){
+					canvas2D.style.visibility = "visible";
+				}else{
+					canvas2D.style.visibility = "hidden";
+				}
+			}
+		</script>
+	</head>
+	<body onload="initWebGL()">
+		<script>displayTitle("Ch.05 Ex.6 : Sélection d'objets 3D", 0,1,1,1);</script>
+		<br>Sélection d'objets sur scene 3D:<br>
+		<input type="checkbox" id="toggle2d" value="none" onchange="toggle2dCanvas(this)">Afficher Canevas 2D (sélection basée sur la couleur)
+		<br>
+		<table>
+		<tr><td>
+		<canvas id="webgl-canvas" width="500" height="500">
+			HTML5 is not supported
+		</canvas>
+		</td><td>
+		<div id="2dCanvas" style="visibility:hidden;"></div>
+		</td></tr>
+		</table>
+	</body>
+	<script src='./js/mouseMotionHandling.js'></script>	
+	<script id='pick' type="text/javascript">
+		checkbox = document.getElementById("toggle2d");
+		checkbox.checked = false;
+		var oldY = 0;
+		var myCanvas = document.getElementById('webgl-canvas');
+		myCanvas.addEventListener('mousedown', function(evt) {
+				var mousePos = getMousePos(myCanvas, evt);
+				processClickAt(mousePos.x, mousePos.y);
+		}, false);
+		function getMousePos(myCanvas, evt) {
+				var rect = myCanvas.getBoundingClientRect();
+				return {
+				  x: evt.clientX - rect.left,
+				  y: evt.clientY - rect.top
+				};
+		}
+	</script>
+</html>
