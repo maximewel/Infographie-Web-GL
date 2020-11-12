@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="fr">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="stylesheet" href="./css/stylesheet.css">
+		<script src="./js/commonFunctions.js"></script>
+		<script src='./js/gl-matrix-min.js'></script>
+		<script src='./js/webglTools.js'></script>
+		<script id="shader-vs" type="x-shader/x-vertex">
+			attribute vec3 aVertexPosition;attribute vec4 aColor;uniform mat4 uMVMatrix; uniform mat4 uPMatrix;varying vec4 vColor; void main(void){vec4 transformedVertexPos=uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);gl_Position=transformedVertexPos;vec3 colorComponents=aColor.xyz -2.0 + transformedVertexPos.z * 0.5;vColor=vec4(colorComponents, 1.0);}</script>
+		<script id="shader-fs" type="x-shader/x-fragment">
+			#ifdef GL_ES
+			precision highp float;
+			#endif
+			varying vec4 vColor;void main(void){gl_FragColor=vColor;}</script>
+		<script>
+			var vertexColor = [];
+			vertexColor.push(0.3, 0.3, 0.3, 1.0);
+			var sphereDivisions = 0;
+			var rotY = 0;
+			var rotX = 0;
+			var vertexBuffer = null;
+			var indexBuffer = null;
+			var colorBuffer = null;
+			var indices = [];
+			var vertices = [];
+			var colors = [];
+			var indexCnt = 0;
+			var indicesSplitted = [];
+			var verticesSplitted = [];
+			var colorsSplitted = [];
+			var mvMatrix = mat4.create();
+			var pMatrix = mat4.create();
+			var perspective = true;
+			window.onkeydown = checkKey;
+			function checkKey(ev) {
+				console.log(ev.keyCode);
+				switch (ev.keyCode) {
+					case 189:
+					case 173:
+					case 109:
+						{
+							if (sphereDivisions > 0) --sphereDivisions;
+							initBuffers();
+							break;
+						}
+					case 49:
+					case 107:
+						{
+							++sphereDivisions;
+							initBuffers();
+							break;
+						}
+					default:
+						break;
+				}
+				document.getElementById("numberOfSubdivisions").innerHTML = sphereDivisions;
+			}
+			function degToRad(degrees) {
+				return (degrees * Math.PI / 180.0);
+			}
+			function initShaderParameters(prg) {
+				prg.vertexPositionAttribute = glContext.getAttribLocation(prg, "aVertexPosition");
+				glContext.enableVertexAttribArray(prg.vertexPositionAttribute);
+				prg.colorAttribute = glContext.getAttribLocation(prg, "aColor");
+				glContext.enableVertexAttribArray(prg.colorAttribute);
+				prg.pMatrixUniform = glContext.getUniformLocation(prg, 'uPMatrix');
+				prg.mvMatrixUniform = glContext.getUniformLocation(prg, 'uMVMatrix');
+			}
+			function Normalize(v) {
+				var d = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+				if (d != 0.0) {
+					v[0] /= d;
+					v[1] /= d;
+					v[2] /= d;
+				}
+				return v;
+			}
+			function OneToFourTriangle(v1, v2, v3, depth) {
+				var v12 = [];
+				var v23 = [];
+				var v31 = [];
+				var i;
+				if (depth == 0) {
+					v1 = Normalize(v1);
+					v2 = Normalize(v2);
+					v3 = Normalize(v3);
+					var iV1 = 0;
+					var iV2 = 0;
+					var iV3 = 0;
+					vertices.push(v1[0], v1[1], v1[2]);
+					colors.push(vertexColor[0], vertexColor[1], vertexColor[2], vertexColor[3]);
+					iV1 = indexCnt;
+					indexCnt++;
+					vertices.push(v2[0], v2[1], v2[2]);
+					colors.push(vertexColor[0], vertexColor[1], vertexColor[2], vertexColor[3]);
+					iV2 = indexCnt;
+					indexCnt++;
+					vertices.push(v3[0], v3[1], v3[2]);
+					colors.push(vertexColor[0], vertexColor[1], vertexColor[2], vertexColor[3]);
+					iV3 = indexCnt;
+					indexCnt++;
+					indices.push(iV1, iV2, iV2, iV3, iV3, iV1);
+				} else {
+					for (i = 0; i < 3; i++) {
+						v12.push((v1[i] + v2[i]) / 2.0);
+						v23.push((v2[i] + v3[i]) / 2.0);
+						v31.push((v3[i] + v1[i]) / 2.0);
+					}
+					v12 = Normalize(v12);
+					v23 = Normalize(v23);
+					v31 = Normalize(v31);
+					OneToFourTriangle(v1, v12, v31, depth - 1);
+					OneToFourTriangle(v2, v23, v12, depth - 1);
+					OneToFourTriangle(v3, v31, v23, depth - 1);
+					OneToFourTriangle(v12, v23, v31, depth - 1);
+				}
+			}
+			function initBuffers() {
+				indices = [];
+				vertices = [];
+				colors = [];
+				indexCnt = 0;
+				var X = 0.525731112119133696;
+				var Z = 0.850650808352039932;
+				var icosahedronvertex = [];
+				icosahedronvertex.push(-X, 0.0, Z);
+				icosahedronvertex.push(X, 0.0, Z);
+				icosahedronvertex.push(-X, 0.0, -Z);
+				icosahedronvertex.push(X, 0.0, -Z);
+				icosahedronvertex.push(0.0, Z, X);
+				icosahedronvertex.push(0.0, Z, -X);
+				icosahedronvertex.push(0.0, -Z, X);
+				icosahedronvertex.push(0.0, -Z, -X);
+				icosahedronvertex.push(Z, X, 0.0);
+				icosahedronvertex.push(-Z, X, 0.0);
+				icosahedronvertex.push(Z, -X, 0.0);
+				icosahedronvertex.push(-Z, -X, 0.0);
+				var icosahedrontriangle = [];
+				icosahedrontriangle.push(1, 4, 0);
+				icosahedrontriangle.push(4, 9, 0);
+				icosahedrontriangle.push(4, 5, 9);
+				icosahedrontriangle.push(8, 5, 4);
+				icosahedrontriangle.push(1, 8, 4);
+				icosahedrontriangle.push(1, 10, 8);
+				icosahedrontriangle.push(10, 3, 8);
+				icosahedrontriangle.push(8, 3, 5);
+				icosahedrontriangle.push(3, 2, 5);
+				icosahedrontriangle.push(3, 7, 2);
+				icosahedrontriangle.push(3, 10, 7);
+				icosahedrontriangle.push(10, 6, 7);
+				icosahedrontriangle.push(6, 11, 7);
+				icosahedrontriangle.push(6, 0, 11);
+				icosahedrontriangle.push(6, 1, 0);
+				icosahedrontriangle.push(10, 1, 6);
+				icosahedrontriangle.push(11, 0, 9);
+				icosahedrontriangle.push(2, 11, 9);
+				icosahedrontriangle.push(5, 2, 9);
+				icosahedrontriangle.push(11, 2, 7);
+				for (i = 0; i < icosahedrontriangle.length; i += 3) {
+					var v1 = [];
+					var v2 = [];
+					var v3 = [];
+					var vertexIndexStart = icosahedrontriangle[i] * 3;
+					v1.push(icosahedronvertex[vertexIndexStart], icosahedronvertex[vertexIndexStart + 1], icosahedronvertex[vertexIndexStart + 2]);
+					vertexIndexStart = icosahedrontriangle[i + 1] * 3;
+					v2.push(icosahedronvertex[vertexIndexStart], icosahedronvertex[vertexIndexStart + 1], icosahedronvertex[vertexIndexStart + 2]);
+					vertexIndexStart = icosahedrontriangle[i + 2] * 3;
+					v3.push(icosahedronvertex[vertexIndexStart], icosahedronvertex[vertexIndexStart + 1], icosahedronvertex[vertexIndexStart + 2]);
+					OneToFourTriangle(v1, v2, v3, sphereDivisions);
+				}
+				splitArrays();
+			}
+			function splitArrays() {
+				indicesSplitted = [];
+				verticesSplitted = [];
+				colorsSplitted = [];
+				var i = 1;
+				var MAX_ELEMENT = 61440;
+				while ((i - 1) * MAX_ELEMENT < indices.length) {
+					splitted = indices.slice((i - 1) * MAX_ELEMENT, i * MAX_ELEMENT);
+					splitted = splitted.map(function(v) {
+						return v - (i - 1) * MAX_ELEMENT / 2;
+					});
+					indicesSplitted.push(splitted);
+					colorsSplitted.push(colors.slice((i - 1) * MAX_ELEMENT * 2, i * MAX_ELEMENT * 2));
+					verticesSplitted.push(vertices.slice((i - 1) * MAX_ELEMENT * 3 / 2, i * MAX_ELEMENT * 3 / 2));
+					++i;
+				}
+			}
+				function cameraFct(perspective){
+					translationMat = mat4.create();
+					mat4.identity(translationMat);
+					if( perspective ){
+						mat4.perspective(pMatrix, degToRad(30.0), c_width / c_height, 0.1, 1000.0);
+						var tx = 0.0;
+						var ty = 0.0;
+						var tz = -4.0;
+						mat4.translate(translationMat,translationMat, [tx, ty, tz]);
+					}
+					else{
+						mat4.identity(pMatrix);
+						mat4.ortho(-1.0, 1.0, -1.0, 1.0, 1.0, -1.0, pMatrix);
+					}
+					rotateModelViewMatrixUsingQuaternion(true);
+					glContext.uniformMatrix4fv(prg.pMatrixUniform, false, pMatrix);
+					glContext.uniformMatrix4fv(prg.mvMatrixUniform, false, mat4.multiply(mat4.create(), translationMat, mvMatrix));
+				}
+				function drawScene() {
+				glContext.clearColor(0.9, 0.9, 1.0, 1.0);
+				glContext.enable(glContext.DEPTH_TEST);
+				glContext.clear(glContext.COLOR_BUFFER_BIT | glContext.DEPTH_BUFFER_BIT);
+				glContext.viewport(0, 0, c_width, c_height);
+				cameraFct(perspective);
+				for (var i = 0; i < indicesSplitted.length; i++) {
+					vertexBuffer = getVertexBufferWithVertices(verticesSplitted[i]);
+					indexBuffer = getIndexBufferWithIndices(indicesSplitted[i]);
+					colorBuffer = getVertexBufferWithVertices(colorsSplitted[i]);
+					glContext.bindBuffer(glContext.ARRAY_BUFFER, vertexBuffer);
+					glContext.vertexAttribPointer(prg.vertexPositionAttribute, 3, glContext.FLOAT, false, 0, 0);
+					glContext.bindBuffer(glContext.ARRAY_BUFFER, colorBuffer);
+					glContext.vertexAttribPointer(prg.colorAttribute, 4, glContext.FLOAT, false, 0, 0);
+					glContext.bindBuffer(glContext.ELEMENT_ARRAY_BUFFER, indexBuffer);
+					glContext.drawElements(glContext.LINES, indicesSplitted[i].length, glContext.UNSIGNED_SHORT, 0);
+				}
+			}
+			function initWebGL() {
+				glContext = getGLContext('webgl-canvas');
+				initProgram();
+				initBuffers();
+				renderLoop();
+				document.getElementById("numberOfSubdivisions").innerHTML = sphereDivisions;
+			}
+		</script>
+	</head>
+	<body onload="initWebGL()">
+		<script>
+			displayTitle("Ch.07 Ex.4 : Subdivision infinie", 1, 1, 1, 1, 1, 1, 1);
+		</script>
+		<p>Utiliser les touches : '-' pour réduire la résolution ; '+' pour l'augmenter ; utiliser la souris pour faire tourner la sphère</p>
+		<canvas id="webgl-canvas" width="500" height="500">HTML5 is not supported</canvas>
+		<h1>Subdivision count: <span id="numberOfSubdivisions"></span></h1>
+		<p>On a standard machine subdivsions from 0 to 6 are processed in an acceptable time. With more than 6 subdivision it takes much longer to compute all the points.</p>
+		</p>
+	</body>
+	<script src='./js/mouseMotionHandling.js'></script>
+</html>
